@@ -38,6 +38,8 @@ export async function loadS3intoPinecone(fileKey: string) {
 
   const img_data = await get_image_summary(file_name); // get image summaries as a list
 
+  console.log("Printing Image Data",img_data)
+
   const loader = new PDFLoader(file_name);
   const pages = (await loader.load()) as PDFPage[];
 
@@ -49,8 +51,13 @@ export async function loadS3intoPinecone(fileKey: string) {
   const vectors = await Promise.all(documents.flat().map(embedDocument));
   const img_vectors = await Promise.all(img_data.map(embedImageSummary)); // get image vectors
 
-  const client = await getPineconeClient();
-  const pineconeIndex = await client.Index("chat-with-pdf");
+  // console.log("Text Vectors Length:", vectors.length);
+  console.log("Image Vectors Length:", img_vectors.length);
+  // console.log("Text Vectors:", vectors);
+  console.log("Image Vectors:", img_vectors);
+
+  const client =  getPineconeClient();
+  const pineconeIndex =  client.Index("chat-with-pdf");
   const namespace = pineconeIndex.namespace(convertToAscii(fileKey));
   console.log("<------Upsert to Pinecone Index------>");
   await namespace.upsert(vectors);

@@ -15,16 +15,16 @@ export default async function Home() {
   const isAuth = !!userId;
   let latestDialog;
 
-  if (userId) {
-    const chatList = await db
-      .select()
-      .from(chats)
-      .where(eq(chats.userId, userId));
-    if (chatList.length !== 0) {
-      const id = chatList[chatList.length - 1].id;
-      latestDialog = id;
-    }
-  }
+  // if (userId) {
+  //   const chatList = await db
+  //     .select()
+  //     .from(chats)
+  //     .where(eq(chats.userId, userId));
+  //   if (chatList.length !== 0) {
+  //     const id = chatList[chatList.length - 1].id;
+  //     latestDialog = id;
+  //   }
+  // }
   return (
     <div className="flex flex-col w-screen h-full min-h-screen bg-gradient-to-r from-yellow-200 via-green-200 to-green-300">
       <div className="relative">

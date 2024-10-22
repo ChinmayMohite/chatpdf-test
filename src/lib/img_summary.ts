@@ -1,16 +1,13 @@
 // Import necessary modules
 import { PineconeRecord } from "@pinecone-database/pinecone";
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { HumanMessage } from '@langchain/core/messages';
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage } from "@langchain/core/messages";
 import { UnstructuredClient } from "unstructured-client";
 import { PartitionResponse } from "unstructured-client/sdk/models/operations";
 import { Strategy } from "unstructured-client/sdk/models/shared";
 import * as fs from "fs";
-import { config } from 'dotenv';
-import { getEmbeddings } from "./embeddings";
+import { config } from "dotenv";
 import md5 from "md5";
-import { and } from "drizzle-orm";
-import { stringify } from "querystring";
 
 config();
 
@@ -18,98 +15,86 @@ const key = process.env.UNSTRUCTURED_API_KEY;
 const url = process.env.UNSTRUCTURED_API_URL;
 
 const client = new UnstructuredClient({
-    serverURL: url,
-    security: {
-        apiKeyAuth: key,
-    },
+  serverURL: url,
+  security: {
+    apiKeyAuth: key,
+  },
 });
-
-
 
 const vision_model = new ChatGoogleGenerativeAI({
-    model:"gemini-1.5-flash",
+  model: "gemini-1.5-flash",
+  apiKey: process.env.GOOGLE_API_KEY,
 });
 
-// async function embedSummary(img_summary: string) {
-//     try {
-//       const embeddings = await getEmbeddings(img_summary);
-//       const hash = md5(img_summary);
-//       return {
-//         id: hash,
-//         values: embeddings,
-//         metadata: {
-//           pageNumber: doc.metadata.pageNumber,
-//           text: doc.metadata.text,
-//         },
-//       } as PineconeRecord;
-//     } catch (error) {
-//       console.log("Error embedding the Docs", error);
-//       throw error;
-//     }
-//   }
-
-
-export async function get_image_summary (file_name: string){
-
+export async function get_image_summary(file_name: string) {
+  try {
     const filename = file_name;
     const data = fs.readFileSync(filename);
 
     const res: PartitionResponse = await client.general.partition({
-        partitionParameters: {
-            files: {
-                content: data,
-                fileName: filename, 
-            },
-            strategy: Strategy.HiRes,
-            splitPdfPage: true,
-            splitPdfAllowFailed: true,
-            splitPdfConcurrencyLevel: 15,
-            extractImageBlockTypes : ["Image", "Table"],
-        }
+      partitionParameters: {
+        files: {
+          //@ts-ignore
+          content: data,
+          fileName: filename,
+        },
+        strategy: Strategy.HiRes,
+        splitPdfPage: true,
+        splitPdfAllowFailed: true,
+        splitPdfConcurrencyLevel: 15,
+        extractImageBlockTypes: ["Image"], // Adjust this if needed
+      },
     });
-    if (res.statusCode == 200) {
+
+    if (res.statusCode === 200 && res.elements) {
+      let img_data: any[] = [];
+
+      // Iterate over the partitioned elements
+      for (const element of res.elements) {
+        if (element.metadata?.image_base64) {
+          try {
+            const base64_image = element.metadata.image_base64;
+            const prompt = `Provide a detailed summary of the image's visual content. Describe the key objects, colors, 
+                  themes, and any notable features visible in the image. Mention the page number and image number.`;
             
-        let img_data: any [] = [];
+            const msg = new HumanMessage({
+              content: [
+                {
+                  type: "text",
+                  text: `${prompt} (This image is located on page ${element.metadata.pageNumber}.)`,
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: `data:image/jpeg;base64,${base64_image}` },
+                },
+              ],
+            });
 
-        res.elements?.forEach(async (element: any) => {
-            if (element.metadata?.image_base64) {
-                try {
-                    const base64_image = element.metadata.image_base64
-                    const prompt = `You are an assistant tasked with summarizing images for retrieval. 
-                                    These summaries will be embedded and used to retrieve the raw image.
-                                    Provide a detailed description of the image in more than 50 words.
-                                    Also keep a track of the page number on which the image is present.
-                                    Give a concise summary of the image that is well optimized for retrieval. Image {element}`;
-                        
-                    const msg = new HumanMessage({
-                        content:[
-                            {
-                                "type" : "text" , "text" : prompt 
-                            },
-                            {
-                                "type" : "image_url", "image_url" : {"url" : `data:image/jpeg;base64,${base64_image}`}, 
-                            },
-                        ]
-                    })
-                    
-                    const image_summary = await vision_model.invoke([msg]);
+            // Call the vision model to generate the image summary
+            const image_summary = await vision_model.invoke([msg]);
 
-                    const data = {
-                        pageNumber : element.metadata.pageNumber,
-                        text : image_summary.content,
-                    };
+            img_data.push({
+              pageNumber: element.metadata.pageNumber,
+              text: image_summary.content,
+            });
+          } catch (error) {
+            console.error("Error processing image on page:", element.metadata.pageNumber, error);
+          }
+        } else {
+          console.warn("No image data found in element on page:", element.metadata?.pageNumber);
+        }
+      }
 
-                    img_data.push(data);
-
-                } catch (error) {
-                    console.error("Error in embedding the image:", error);
-                }
-            }
-        });
-            
-        return img_data
-    }else{
-        console.error("Error in partitioning:");
-        return [];
+      return img_data;
+    } 
+    else if (res.statusCode !== 200) {
+      throw new Error(`Unexpected status code: ${res.statusCode}`);
+    }else {
+      console.error("Error in partitioning or empty response.");
+      return [];
     }
+  } catch (error) {
+    console.error("Error in get_image_summary function:", error);
+    return [];
+  }
 }
